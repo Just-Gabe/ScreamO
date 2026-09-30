@@ -1,6 +1,12 @@
 //! ScreamO — pedaleira de guitarra em tempo real para Windows.
 //!
-//! Uso: `screamo [--port 7777] [--no-browser]`
+//! Uso: `screamo [--port 7777] [--no-browser] [--keep-running]`
+//!
+//! No build release não há janela de console; ao fechar a janela da UI o
+//! motor encerra sozinho (a menos que `--keep-running` seja usado).
+
+// Sem console no release (é um app de janela). Em debug o console fica.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
 mod dsp;
@@ -9,26 +15,32 @@ mod server;
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use tokio::sync::broadcast;
 
 use engine::Controller;
-use server::AppState;
+use server::{AppState, ClientCount};
+
+/// Tempo sem nenhuma janela conectada antes de encerrar (cobre recarregar a página).
+const EXIT_GRACE: Duration = Duration::from_secs(5);
 
 struct Args {
     port: u16,
     open_window: bool,
+    keep_running: bool,
 }
 
 fn parse_args() -> Args {
-    let mut args = Args { port: 7777, open_window: true };
+    let mut args = Args { port: 7777, open_window: true, keep_running: false };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
         match a.as_str() {
             "--port" => args.port = it.next().and_then(|p| p.parse().ok()).unwrap_or(7777),
             "--no-browser" => args.open_window = false,
+            "--keep-running" => args.keep_running = true,
             _ => eprintln!("argumento ignorado: {a}"),
         }
     }
@@ -39,19 +51,13 @@ fn data_dir() -> PathBuf {
     std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("ScreamO")
 }
 
-/// Procura a UI compilada: ao lado do .exe (release) ou em ui/dist (dev).
-fn find_ui_dir() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("SCREAMO_UI_DIR") {
-        return Some(PathBuf::from(p));
+/// Quando aberto por um terminal, reaproveita o console dele para os logs
+/// (o executável release não cria console próprio).
+fn attach_parent_console() {
+    use windows::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
     }
-    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
-    let candidates = [
-        exe_dir.join("ui"),
-        exe_dir.join("../../../ui/dist"),
-        PathBuf::from("ui/dist"),
-        PathBuf::from("../ui/dist"),
-    ];
-    candidates.into_iter().find(|p| p.join("index.html").is_file())
 }
 
 /// Abre a UI como janela de app (sem barra de endereço) no Edge/Chrome.
@@ -80,6 +86,7 @@ fn open_window(url: &str) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    attach_parent_console();
     let args = parse_args();
     let url = server::url(args.port);
 
@@ -115,7 +122,32 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let (tx, _) = broadcast::channel::<String>(256);
-    let state = AppState { controller: controller.clone(), tx: tx.clone(), port: args.port };
+    let clients = Arc::new(ClientCount::default());
+    let state = AppState { controller: controller.clone(), tx: tx.clone(), port: args.port, clients: clients.clone() };
+    let shutdown = Arc::new(tokio::sync::Notify::new());
+
+    // Encerra junto com a janela: depois que alguma UI conectou, se ficar
+    // EXIT_GRACE sem nenhuma, o motor sai.
+    if !args.keep_running {
+        let (clients, shutdown) = (clients.clone(), shutdown.clone());
+        tokio::spawn(async move {
+            let mut empty_since: Option<Instant> = None;
+            loop {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                let empty = clients.ever.load(Ordering::SeqCst) && clients.connected.load(Ordering::SeqCst) == 0;
+                match (empty, empty_since) {
+                    (true, None) => empty_since = Some(Instant::now()),
+                    (true, Some(t)) if t.elapsed() >= EXIT_GRACE => {
+                        println!("Janela fechada.");
+                        shutdown.notify_one();
+                        return;
+                    }
+                    (false, _) => empty_since = None,
+                    _ => {}
+                }
+            }
+        });
+    }
 
     // Medidores (~30 fps), limpeza e recuperação automática de dispositivo.
     {
@@ -152,23 +184,30 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let ui_dir = find_ui_dir();
-    if ui_dir.is_none() {
-        eprintln!("Aviso: UI compilada não encontrada (rode `npm run build` em ui/).");
-    }
+    // SCREAMO_UI_DIR serve a UI do disco em vez da embutida (desenvolvimento).
+    let ui_dir = std::env::var_os("SCREAMO_UI_DIR").map(PathBuf::from);
     let app = server::router(state, ui_dir);
-    println!("UI: {url}  (Ctrl+C para sair)");
+    println!("UI: {url}  (feche a janela ou Ctrl+C para sair)");
     if args.open_window {
         open_window(&url);
     }
 
     axum::serve(listener, app)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
+        .with_graceful_shutdown(async move {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = shutdown.notified() => {}
+            }
         })
         .await?;
 
     println!("Encerrando...");
-    tokio::task::spawn_blocking(move || { let mut c = controller.lock(); c.stop_audio(); c.tick(); }).await?;
-    Ok(())
+    tokio::task::spawn_blocking(move || {
+        let mut c = controller.lock();
+        c.stop_audio();
+        c.tick();
+    })
+    .await?;
+    // O servidor pode ter tarefas presas em WebSockets abertos; sai de vez.
+    std::process::exit(0)
 }

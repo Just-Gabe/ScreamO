@@ -3,11 +3,12 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use axum::Router;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use futures_util::{SinkExt, StreamExt};
@@ -18,25 +19,48 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::engine::{Action, Controller, Outcome};
 
+/// UI compilada (ui/dist) embutida no executável.
+#[derive(rust_embed::Embed)]
+#[folder = "../ui/dist"]
+struct EmbeddedUi;
+
 #[derive(Clone)]
 pub struct AppState {
     pub controller: Arc<Mutex<Controller>>,
     pub tx: broadcast::Sender<String>,
     pub port: u16,
+    pub clients: Arc<ClientCount>,
 }
 
+/// Quantas janelas da UI estão conectadas (para fechar o motor junto com a janela).
+#[derive(Default)]
+pub struct ClientCount {
+    pub connected: AtomicUsize,
+    pub ever: AtomicBool,
+}
+
+/// `ui_dir` sobrescreve a UI embutida (útil para desenvolvimento).
 pub fn router(state: AppState, ui_dir: Option<PathBuf>) -> Router {
     let app = Router::new().route("/ws", get(ws_handler));
     let app = match ui_dir {
         Some(dir) => app.fallback_service(ServeDir::new(&dir).fallback(ServeFile::new(dir.join("index.html")))),
-        None => app.fallback(|| async {
-            (
-                StatusCode::NOT_FOUND,
-                "UI não encontrada. Rode `npm run build` em ui/ ou use `npm run web` para desenvolvimento.",
-            )
-        }),
+        None => app.fallback(embedded),
     };
     app.with_state(state)
+}
+
+async fn embedded(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    // Rotas desconhecidas caem no index.html (SPA).
+    let file = EmbeddedUi::get(if path.is_empty() { "index.html" } else { path }).or_else(|| EmbeddedUi::get("index.html"));
+    match file {
+        Some(f) => ([(header::CONTENT_TYPE, f.metadata.mimetype().to_string())], f.data).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "UI não embutida. Rode `npm run build` em ui/ e recompile o motor, ou use `npm run web`.",
+        )
+            .into_response(),
+    }
 }
 
 /// Bloqueia sites de terceiros abertos no navegador de controlarem o motor
@@ -63,6 +87,13 @@ async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(state): Stat
 }
 
 async fn client(socket: WebSocket, state: AppState) {
+    state.clients.connected.fetch_add(1, Ordering::SeqCst);
+    state.clients.ever.store(true, Ordering::SeqCst);
+    serve_client(socket, &state).await;
+    state.clients.connected.fetch_sub(1, Ordering::SeqCst);
+}
+
+async fn serve_client(socket: WebSocket, state: &AppState) {
     let (mut sink, mut stream) = socket.split();
     let mut rx = state.tx.subscribe();
 

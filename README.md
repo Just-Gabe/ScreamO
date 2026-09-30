@@ -64,8 +64,12 @@ aliasing, som menos "digital").
 
 ### Usuário
 
+`ScreamO.exe` é um arquivo único (a interface vai embutida), sem instalador e
+sem dependências: só o Windows 10/11 e o Edge ou Chrome, que já vêm no sistema.
+
 1. Conecte o cabo da guitarra e o fone.
-2. Rode `screamo.exe`. A janela abre sozinha.
+2. Abra o `ScreamO.exe`. A janela abre sozinha; fechar a janela encerra o
+   programa.
 3. Se o cabo não for detectado automaticamente, clique em **Áudio** e escolha a
    entrada. Enquanto nenhuma entrada de guitarra for escolhida, a saída fica
    muda, para não gerar microfonia com o microfone do notebook.
@@ -79,14 +83,15 @@ com [WinLibs MinGW](https://winlibs.com) no PATH, **ou** o toolchain MSVC com
 Visual Studio Build Tools) e Node.js 20+.
 
 ```powershell
-# Build completo (UI + motor) em dist\ScreamO
+# Build completo: gera dist\ScreamO.exe (UI embutida, ícone, sem console)
 .\scripts\build.ps1
 
 # Ou por partes:
-cd ui; npm install; npm run build          # UI -> ui/dist
-cd engine; cargo run --release             # motor (serve ui/dist)
+cd ui; npm install; npm run build          # UI -> ui/dist (embutida no .exe)
+cd engine; cargo run --release             # motor
 
 # UI com hot reload (motor rodando em paralelo):
+cd engine; cargo run -- --keep-running     # não fecha junto com a janela
 cd ui; npm run web                         # http://localhost:8081
 ```
 
