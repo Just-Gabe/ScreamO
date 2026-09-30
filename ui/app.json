@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "ScreamO",
+    "slug": "screamo",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "ScreamO",
+      "shortName": "ScreamO",
+      "themeColor": "#0b0b10",
+      "backgroundColor": "#0b0b10"
+    },
+    "backgroundColor": "#0b0b10"
+  }
+}

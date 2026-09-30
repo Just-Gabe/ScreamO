@@ -1,0 +1,4 @@
+/engine/target/
+/dist/
+*.log
+.DS_Store
