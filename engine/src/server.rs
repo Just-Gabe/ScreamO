@@ -148,6 +148,7 @@ async fn serve_client(socket: WebSocket, state: &AppState) {
                 let msg = json!({"type": "param", "slotId": slot_id, "index": index, "value": value});
                 let _ = state.tx.send(msg.to_string());
             }
+            Ok(Ok((Outcome::Nothing, _))) => {}
             Ok(Err(e)) => {
                 let _ = direct_tx.send(json!({"type": "error", "message": format!("{e:#}")}).to_string());
             }

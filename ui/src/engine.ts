@@ -38,7 +38,15 @@ function createStore<T>(initial: T) {
 export type Connection = 'connecting' | 'open' | 'closed';
 
 const stateStore = createStore<EngineState | null>(null);
-const meterStore = createStore<Meters>({ input: 0, output: 0, dspLoad: 0, underruns: 0, overflows: 0, tuner: null });
+const meterStore = createStore<Meters>({
+  input: 0,
+  output: 0,
+  dspLoad: 0,
+  underruns: 0,
+  overflows: 0,
+  tuner: null,
+  looper: { state: 'empty', position: 0, length: 0, sampleRate: 48000 },
+});
 const connStore = createStore<Connection>('connecting');
 const errorStore = createStore<{ message: string; at: number } | null>(null);
 

@@ -3,7 +3,8 @@
 export type ParamKind =
   | { kind: 'knob'; log: boolean }
   | { kind: 'choice'; options: string[] }
-  | { kind: 'toggle' };
+  | { kind: 'toggle' }
+  | { kind: 'actions'; options: string[] };
 
 export type ParamSpec = {
   id: string;
@@ -98,6 +99,12 @@ export type Meters = {
   underruns: number;
   overflows: number;
   tuner: TunerReading | null;
+  looper: {
+    state: 'empty' | 'recording' | 'playing' | 'overdubbing' | 'stopped';
+    position: number;
+    length: number;
+    sampleRate: number;
+  };
 };
 
 export type Action =

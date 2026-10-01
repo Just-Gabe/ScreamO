@@ -15,6 +15,7 @@ pub mod eq;
 pub mod fuzz;
 pub mod gate;
 pub mod ir_cab;
+pub mod looper;
 pub mod nam_amp;
 pub mod overdrive;
 pub mod reverb;
@@ -36,4 +37,5 @@ pub static REGISTRY: &[&EffectDescriptor] = &[
     &tremolo::DESCRIPTOR,
     &delay::DESCRIPTOR,
     &reverb::DESCRIPTOR,
+    &looper::DESCRIPTOR,
 ];

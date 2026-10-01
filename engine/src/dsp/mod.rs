@@ -103,6 +103,9 @@ pub enum ParamKind {
     Choice { options: &'static [&'static str] },
     /// Liga/desliga (0.0 / 1.0).
     Toggle,
+    /// Botões que disparam ações (valor = índice + 1; 0 = nada). Não é
+    /// guardado no estado nem em presets.
+    Actions { options: &'static [&'static str] },
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -138,6 +141,14 @@ impl ParamSpec {
         }
     }
 
+    pub const fn actions(id: &'static str, name: &'static str, options: &'static [&'static str]) -> Self {
+        Self { id, name, min: 0.0, max: options.len() as f32, default: 0.0, unit: "", kind: ParamKind::Actions { options } }
+    }
+
+    pub fn is_action(&self) -> bool {
+        matches!(self.kind, ParamKind::Actions { .. })
+    }
+
     pub const fn toggle(id: &'static str, name: &'static str, default: bool) -> Self {
         Self { id, name, min: 0.0, max: 1.0, default: if default { 1.0 } else { 0.0 }, unit: "", kind: ParamKind::Toggle }
     }
@@ -146,7 +157,7 @@ impl ParamSpec {
         let v = if v.is_finite() { v } else { self.default };
         let v = v.clamp(self.min, self.max);
         match self.kind {
-            ParamKind::Choice { .. } | ParamKind::Toggle => v.round(),
+            ParamKind::Choice { .. } | ParamKind::Toggle | ParamKind::Actions { .. } => v.round(),
             ParamKind::Knob { .. } => v,
         }
     }

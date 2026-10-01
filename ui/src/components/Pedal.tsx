@@ -1,6 +1,6 @@
 import { memo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { send, setParam } from '../engine';
+import { send, setParam, useMeters } from '../engine';
 import { colors, radius } from '../theme';
 import type { EffectDescriptor, SlotState } from '../types';
 import { FileSheet } from './FileSheet';
@@ -71,6 +71,16 @@ function PedalImpl({ slot, desc, index, count, files }: Props) {
                 </Pressable>
               );
             })}
+          {p.kind === 'actions' &&
+            p.options.map((opt, oi) => (
+              <Pressable
+                key={opt}
+                onPress={() => send({ type: 'setParam', slotId: slot.slotId, index: i, value: oi + 1 })}
+                style={({ pressed }) => [styles.action, pressed && { backgroundColor: desc.color }]}
+              >
+                <Text style={styles.actionText}>{opt}</Text>
+              </Pressable>
+            ))}
           {p.kind === 'toggle' && (
             <Pressable
               onPress={() => setParam(slot.slotId, i, slot.params[i] >= 0.5 ? 0 : 1)}
@@ -81,6 +91,8 @@ function PedalImpl({ slot, desc, index, count, files }: Props) {
           )}
         </View>
       ))}
+
+      {desc.id === 'looper' && <LooperStatus color={desc.color} />}
 
       <View style={styles.knobs}>
         {knobs.map(({ p, i }) => (
@@ -106,6 +118,34 @@ function PedalImpl({ slot, desc, index, count, files }: Props) {
         <View style={[styles.led, on && { backgroundColor: desc.color, shadowColor: desc.color }]} />
         <Text style={styles.footText}>{on ? 'ON' : 'BYPASS'}</Text>
       </Pressable>
+    </View>
+  );
+}
+
+const LOOP_LABEL = {
+  empty: 'Vazio · aperte Rec',
+  recording: 'Gravando...',
+  playing: 'Tocando',
+  overdubbing: 'Overdub',
+  stopped: 'Parado',
+};
+
+/** Estado e progresso do loop (atualiza com os medidores, ~30 fps). */
+function LooperStatus({ color }: { color: string }) {
+  const { looper } = useMeters();
+  const secs = looper.length / looper.sampleRate;
+  const progress = looper.length > 0 ? looper.position / looper.length : 0;
+  const live = looper.state === 'recording' || looper.state === 'overdubbing';
+  return (
+    <View style={styles.loopBox}>
+      <View style={styles.loopHeader}>
+        <View style={[styles.loopDot, { backgroundColor: live ? colors.danger : looper.state === 'playing' ? colors.ok : colors.textFaint }]} />
+        <Text style={styles.loopState}>{LOOP_LABEL[looper.state]}</Text>
+        <Text style={styles.loopTime}>{secs > 0 ? `${secs.toFixed(1)} s` : ''}</Text>
+      </View>
+      <View style={styles.loopTrack}>
+        <View style={[styles.loopFill, { width: `${(looper.state === 'recording' ? 1 : progress) * 100}%`, backgroundColor: color }]} />
+      </View>
     </View>
   );
 }
@@ -161,6 +201,23 @@ const styles = StyleSheet.create({
   fileName: { color: colors.text, fontSize: 13, fontWeight: '700' },
   fileError: { color: colors.danger, fontSize: 11, marginBottom: 8 },
   fileWarning: { color: colors.warn, fontSize: 11, marginBottom: 8 },
+  action: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.bgRaised,
+  },
+  actionText: { color: colors.text, fontWeight: '800', fontSize: 12 },
+  loopBox: { marginBottom: 12, gap: 6 },
+  loopHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  loopDot: { width: 10, height: 10, borderRadius: 5 },
+  loopState: { color: colors.text, fontWeight: '700', fontSize: 13, flex: 1 },
+  loopTime: { color: colors.textDim, fontSize: 12 },
+  loopTrack: { height: 6, borderRadius: 3, backgroundColor: colors.border, overflow: 'hidden' },
+  loopFill: { height: '100%' },
   knobs: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', rowGap: 10, marginBottom: 12 },
   footswitch: {
     flexDirection: 'row',

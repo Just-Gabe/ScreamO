@@ -131,6 +131,8 @@ pub enum Action {
 pub enum Outcome {
     State,
     Param { slot_id: u64, index: usize, value: f32 },
+    /// Ação sem mudança de estado (botões do looper).
+    Nothing,
 }
 
 struct Running {
@@ -474,6 +476,9 @@ impl Controller {
             }
             Action::AddEffect { effect_id, index } => {
                 let desc = dsp::find(&effect_id).ok_or_else(|| anyhow!("efeito desconhecido: {effect_id}"))?;
+                if desc.id == "looper" && self.chain.iter().any(|s| s.effect_id == "looper") {
+                    bail!("só um Looper por vez na cadeia");
+                }
                 if self.chain.len() >= processor::MAX_SLOTS {
                     bail!("limite de {} efeitos na cadeia", processor::MAX_SLOTS);
                 }
@@ -508,6 +513,10 @@ impl Controller {
                 let desc = dsp::find(&slot.effect_id).ok_or_else(|| anyhow!("efeito desconhecido"))?;
                 let spec = desc.params.get(index).ok_or_else(|| anyhow!("parâmetro inexistente"))?;
                 let value = spec.clamp(value);
+                if spec.is_action() {
+                    self.send(Command::SetParam { slot: slot_id, index, value });
+                    return Ok(Outcome::Nothing);
+                }
                 slot.params[index] = value;
                 // Mexer no knob controlado pelo BPM desliga o sync daquele pedal.
                 let mut outcome = Outcome::Param { slot_id, index, value };
@@ -586,7 +595,9 @@ impl Controller {
                 Outcome::State
             }
         };
-        self.dirty = true;
+        if !matches!(outcome, Outcome::Nothing) {
+            self.dirty = true;
+        }
         Ok(outcome)
     }
 
@@ -620,6 +631,12 @@ impl Controller {
             "underruns": self.meters.underruns.load(Ordering::Relaxed),
             "overflows": self.meters.overflows.load(Ordering::Relaxed),
             "tuner": tuner,
+            "looper": {
+                "state": dsp::effects::looper::LoopState::label(dsp::effects::looper::STATE.load(Ordering::Relaxed)),
+                "position": dsp::effects::looper::POSITION.load(Ordering::Relaxed),
+                "length": dsp::effects::looper::LENGTH.load(Ordering::Relaxed),
+                "sampleRate": dsp::effects::looper::SAMPLE_RATE.load(Ordering::Relaxed),
+            },
         })
     }
 }
