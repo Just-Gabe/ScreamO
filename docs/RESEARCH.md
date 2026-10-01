@@ -58,12 +58,12 @@
    controlar o motor (cross-site WebSocket hijacking). Nomes de preset são
    validados contra path traversal.
 
-## Próximos passos inspirados nos projetos acima
+## Inspirados nos projetos acima (já implementados)
 
-- **IR de caixa** (go-dsp-guitar, todos os comerciais): convolução particionada
-  uniforme via FFT para carregar `.wav` de caixas reais.
-- **NAM**: carregar arquivos `.nam` (WaveNet/LSTM). Existe uma implementação
-  C++ de referência (`NeuralAmpModelerCore`) que pode ser portada ou
-  vinculada.
-- **Faust** (Guitarix): gerar código Rust a partir de DSP em Faust para
-  prototipar efeitos mais rápido.
+- **IR de caixa** (go-dsp-guitar, todos os comerciais): convolução com a cabeça
+  da IR direto no tempo e a cauda particionada via FFT, sem latência extra.
+- **NAM**: porte em Rust do WaveNet A1 e do LSTM do `NeuralAmpModelerCore`,
+  validado amostra a amostra contra o C++ oficial. Arquiteturas mais novas
+  (A2/FiLM) são recusadas com mensagem clara.
+
+Ideias futuras ficam nas [issues](https://github.com/Just-Gabe/ScreamO/issues).

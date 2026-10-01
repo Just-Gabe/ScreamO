@@ -42,23 +42,44 @@ Uma **ponte com resampler adaptativo** mantém o buffer no alvo, corrigindo o
 drift dos relógios e convertendo taxas diferentes (ex.: cabo em 44,1 kHz, fone
 em 48 kHz) sem estalos e sem a latência ir crescendo.
 
-## Efeitos (12)
+## Efeitos (15)
 
 | Categoria | Efeitos |
 |---|---|
 | Dinâmica | Noise Gate, Compressor |
 | Drive | Scream Drive (estilo TS), Buzzsaw (high gain), Fuzz Face-Off |
-| Amp | ScreamO Amp: canais Clean / Crunch / Lead, tone stack, presence |
-| Caixa | Cabinet: 1x12 aberta, 2x12 combo, 4x12 fechada, posição do mic |
+| Amp | ScreamO Amp: canais Clean / Crunch / Lead · **NAM Capture** (capturas `.nam`) |
+| Caixa | Cabinet (1x12, 2x12, 4x12, posição do mic) · **IR Cabinet** (IRs `.wav`) |
 | EQ | Graphic EQ de 7 bandas |
-| Modulação | Chorus estéreo, Tremolo |
-| Ambiência | Delay estéreo/ping-pong, Reverb (Freeverb) |
-
-Mais: afinador cromático (YIN), 6 presets de fábrica, presets do usuário,
-medidores de entrada/saída, contador de dropouts e carga de DSP.
+| Modulação | Chorus estéreo, Tremolo (com sync de BPM) |
+| Ambiência | Delay estéreo/ping-pong (com sync de BPM), Reverb (Freeverb), **Looper** |
 
 Os drives e o amp usam **oversampling 4x** nas não-linearidades (menos
 aliasing, som menos "digital").
+
+### Capturas NAM e IRs
+
+- **NAM Capture** roda arquivos do [Neural Amp Modeler](https://www.neuralampmodeler.com)
+  (milhares gratuitos em [tonehunt.org](https://tonehunt.org)). Suporta WaveNet
+  (standard/lite/feather/nano) e LSTM; a saída é validada amostra a amostra
+  contra o `NeuralAmpModelerCore` oficial (`engine/testdata/nam`). O modelo
+  standard usa ~15% de um núcleo.
+- **IR Cabinet** carrega respostas a impulso `.wav` (16/24/32 bits ou float,
+  qualquer taxa) com convolução de **latência zero**.
+- Os arquivos ficam numa biblioteca em `%APPDATA%\ScreamO\files`, são
+  escolhidos por pedal e salvos junto com o preset.
+
+### Mais recursos
+
+- **Afinador** cromático (YIN), 6 presets de fábrica e presets do usuário
+- **Tap tempo / BPM**: delay e tremolo podem seguir o BPM (1/4, 1/8,
+  1/8 pontuada, tercina, 1/16)
+- **MIDI** sem driver: MIDI Learn para pedal de expressão, footswitch
+  (liga/desliga pedal) e volume; Program Change troca de preset
+- **Looper** de até 60 s com overdub
+- **Arrastar e soltar** para reordenar a cadeia
+- Ícone na **bandeja** (abrir, mudo, sair), medidores, contador de dropouts e
+  carga de DSP
 
 ## Rodando
 
@@ -74,7 +95,8 @@ sem dependências: só o Windows 10/11 e o Edge ou Chrome, que já vêm no siste
    entrada. Enquanto nenhuma entrada de guitarra for escolhida, a saída fica
    muda, para não gerar microfonia com o microfone do notebook.
 
-Configurações e presets ficam em `%APPDATA%\ScreamO`.
+Configurações, presets e a biblioteca de IR/NAM ficam em `%APPDATA%\ScreamO`
+(ou na pasta de `SCREAMO_DATA_DIR`, útil para testes).
 
 ### Desenvolvimento
 
@@ -95,7 +117,9 @@ cd engine; cargo run -- --keep-running     # não fecha junto com a janela
 cd ui; npm run web                         # http://localhost:8081
 ```
 
-Testes do motor (estabilidade de todos os efeitos em 44,1/48/96 kHz, afinador):
+Testes do motor: estabilidade de todos os efeitos em 44,1/48/96 kHz,
+convolução contra a convolução direta, NAM contra o C++ oficial, afinador,
+looper, sync de BPM e MIDI:
 
 ```powershell
 cd engine; cargo test --release
@@ -114,10 +138,4 @@ fazem e o que o ScreamO faz diferente.
 
 ## Roadmap
 
-- [ ] Carregar IR de caixa (.wav) com convolução particionada (FFT)
-- [ ] Carregar capturas NAM (Neural Amp Modeler)
-- [ ] Tap tempo no delay e sync de BPM
-- [ ] Drag & drop para reordenar pedais
-- [ ] Looper
-- [ ] App nativo com `react-native-windows` + ícone na bandeja
-- [ ] Controle por MIDI (pedal de expressão / footswitch)
+O que está planejado fica nas [issues](https://github.com/Just-Gabe/ScreamO/issues).

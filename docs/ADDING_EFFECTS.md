@@ -24,6 +24,8 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     // Dual:: dá suporte estéreo grátis para efeitos mono.
     create: |sr| Dual::boxed(|| Boost::new(sr)),
+    file: None,   // Some(FileSupport { .. }) se o efeito carrega um arquivo
+    tempo: None,  // Some(TempoSync { .. }) se um parâmetro segue o BPM
 };
 
 struct Boost {
@@ -87,6 +89,18 @@ Os testes em `dsp/mod.rs` passam sinal por **todos** os efeitos registrados em
 NaN, volume explosivo ou saída muda. O efeito novo entra nesses testes
 automaticamente.
 
+## Recursos opcionais do descritor
+
+- **Tipos de parâmetro**: `knob`/`log_knob` (contínuo), `choice` (seletor),
+  `toggle` (liga/desliga) e `actions` (botões que disparam ações, como os do
+  Looper; não são salvos no preset).
+- **`file: Some(FileSupport { kind, create, validate })`**: o efeito usa um
+  arquivo da biblioteca (`FileKind::Ir` para .wav, `FileKind::Nam` para .nam).
+  A UI mostra o seletor e o upload sozinha. Veja `ir_cab.rs` e `nam_amp.rs`.
+- **`tempo: Some(TempoSync { sync_param, target_param, target })`**: um
+  parâmetro `choice("sync", ..., SYNC_OPTIONS, 0)` faz o alvo (tempo em ms ou
+  rate em Hz) seguir o BPM global. Veja `delay.rs`.
+
 ## Regras de ouro (tempo real)
 
 `process` e `set_param` rodam na thread de áudio:
@@ -97,6 +111,8 @@ automaticamente.
 - Não-linearidades fortes? Use `Oversampler4` para evitar aliasing.
 - Efeito que cria estéreo (chorus, delay, reverb)? Implemente `Effect`
   diretamente e retorne `true` em `process`.
+- `reset()` também roda na thread de áudio (ao terminar o fade de bypass):
+  nada pesado ali.
 
 ## Blocos prontos (`dsp/util.rs`)
 
