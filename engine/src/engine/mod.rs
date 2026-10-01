@@ -419,6 +419,10 @@ impl Controller {
         changed
     }
 
+    pub fn is_muted(&self) -> bool {
+        self.settings.muted || self.safety_mute
+    }
+
     /// Procura dispositivos MIDI novos/desconectados. Retorna se mudou.
     pub fn midi_rescan(&mut self) -> bool {
         self.midi.rescan()

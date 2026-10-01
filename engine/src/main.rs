@@ -12,6 +12,7 @@ mod audio;
 mod dsp;
 mod engine;
 mod server;
+mod tray;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -130,6 +131,28 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState { controller: controller.clone(), tx: tx.clone(), port: args.port, clients: clients.clone() };
     let shutdown = Arc::new(tokio::sync::Notify::new());
 
+    // Ícone na bandeja: Abrir, Mudo e Sair.
+    {
+        let (tray_tx, mut tray_rx) = tokio::sync::mpsc::unbounded_channel();
+        tray::spawn(tray_tx);
+        let (controller, tx, shutdown, url) = (controller.clone(), tx.clone(), shutdown.clone(), url.clone());
+        tokio::spawn(async move {
+            while let Some(ev) = tray_rx.recv().await {
+                match ev {
+                    tray::TrayEvent::Open => open_window(&url),
+                    tray::TrayEvent::ToggleMute => {
+                        let mut c = controller.lock();
+                        let muted = c.is_muted();
+                        if c.apply(engine::Action::SetMute { muted: !muted }).is_ok() {
+                            let _ = tx.send(c.state_json().to_string());
+                        }
+                    }
+                    tray::TrayEvent::Quit => shutdown.notify_one(),
+                }
+            }
+        });
+    }
+
     // Encerra junto com a janela: depois que alguma UI conectou, se ficar
     // EXIT_GRACE sem nenhuma, o motor sai.
     if !args.keep_running {
@@ -164,6 +187,7 @@ async fn main() -> anyhow::Result<()> {
                 n += 1;
                 {
                     let mut c = controller.lock();
+                    tray::MUTED.store(c.is_muted(), Ordering::Relaxed);
                     if c.tick() {
                         let _ = tx.send(c.state_json().to_string());
                     }
@@ -207,6 +231,7 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     println!("Encerrando...");
+    tray::shutdown();
     tokio::task::spawn_blocking(move || {
         let mut c = controller.lock();
         c.stop_audio();
