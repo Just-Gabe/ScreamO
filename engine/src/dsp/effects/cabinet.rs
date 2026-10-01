@@ -18,6 +18,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Dual::boxed(|| Cabinet::new(sr)),
     file: None,
+    tempo: None,
 };
 
 #[derive(Clone, Copy)]

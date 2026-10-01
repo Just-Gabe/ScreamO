@@ -25,6 +25,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Dual::boxed(|| IrCab::new(sr, None)),
     file: Some(FileSupport { kind: FileKind::Ir, create: create_with_ir, validate }),
+    tempo: None,
 };
 
 fn validate(data: &[u8]) -> Result<()> {

@@ -17,9 +17,11 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("mix", "Mix", 0.0, 100.0, 30.0, "%"),
         ParamSpec::log_knob("tone", "Tone", 800.0, 12000.0, 4500.0, "Hz"),
         ParamSpec::choice("mode", "Mode", &["Stereo", "Ping-Pong"], 0),
+        ParamSpec::choice("sync", "Sync", SYNC_OPTIONS, 0),
     ],
     create: |sr| Box::new(Delay::new(sr)),
     file: None,
+    tempo: Some(TempoSync { sync_param: 5, target_param: 0, target: TempoTarget::TimeMs }),
 };
 
 struct Delay {

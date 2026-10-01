@@ -39,6 +39,7 @@ pub struct Settings {
     pub input_gain_db: f32,
     pub output_gain_db: f32,
     pub muted: bool,
+    pub bpm: f32,
 }
 
 impl Default for Settings {
@@ -52,6 +53,7 @@ impl Default for Settings {
             input_gain_db: 0.0,
             output_gain_db: -6.0,
             muted: false,
+            bpm: 120.0,
         }
     }
 }
@@ -109,6 +111,7 @@ pub enum Action {
     SetOutputGain { db: f32 },
     SetMute { muted: bool },
     SetTuner { enabled: bool },
+    SetBpm { bpm: f32 },
     AddEffect { effect_id: String, index: Option<usize> },
     RemoveEffect { slot_id: u64 },
     MoveEffect { slot_id: u64, to: usize },
@@ -460,6 +463,11 @@ impl Controller {
                 self.send(Command::SetMute(muted || self.safety_mute));
                 Outcome::State
             }
+            Action::SetBpm { bpm } => {
+                self.settings.bpm = bpm.clamp(30.0, 300.0);
+                self.apply_tempo();
+                Outcome::State
+            }
             Action::SetTuner { enabled } => {
                 self.meters.tuner_enabled.store(enabled, Ordering::Relaxed);
                 Outcome::State
@@ -477,6 +485,7 @@ impl Controller {
                 }
                 self.chain.insert(index, state);
                 self.current_preset = None;
+                self.apply_tempo();
                 Outcome::State
             }
             Action::RemoveEffect { slot_id } => {
@@ -500,8 +509,19 @@ impl Controller {
                 let spec = desc.params.get(index).ok_or_else(|| anyhow!("parâmetro inexistente"))?;
                 let value = spec.clamp(value);
                 slot.params[index] = value;
+                // Mexer no knob controlado pelo BPM desliga o sync daquele pedal.
+                let mut outcome = Outcome::Param { slot_id, index, value };
+                if let Some(t) = desc.tempo {
+                    if index == t.target_param && slot.params[t.sync_param] != 0.0 {
+                        slot.params[t.sync_param] = 0.0;
+                        outcome = Outcome::State;
+                    } else if index == t.sync_param {
+                        outcome = Outcome::State;
+                    }
+                }
                 self.send(Command::SetParam { slot: slot_id, index, value });
-                Outcome::Param { slot_id, index, value }
+                self.apply_tempo();
+                outcome
             }
             Action::SetBypass { slot_id, bypass } => {
                 let slot = self.chain.iter_mut().find(|s| s.slot_id == slot_id).ok_or_else(|| anyhow!("slot inexistente"))?;
@@ -518,6 +538,7 @@ impl Controller {
                     self.send(Command::ReplaceChain(slots));
                 }
                 self.current_preset = Some(preset.name);
+                self.apply_tempo();
                 Outcome::State
             }
             Action::SavePreset { name } => {
@@ -616,6 +637,26 @@ impl Drop for Controller {
 type FileStatus = (u64, Option<String>, Option<String>);
 
 impl Controller {
+    /// Atualiza tempo/rate dos pedais com Sync ligado a partir do BPM.
+    fn apply_tempo(&mut self) {
+        let bpm = self.settings.bpm;
+        let mut changes = Vec::new();
+        for slot in &mut self.chain {
+            let Some(desc) = dsp::find(&slot.effect_id) else { continue };
+            let Some(t) = desc.tempo else { continue };
+            if let Some(v) = t.value(bpm, slot.params[t.sync_param]) {
+                let v = desc.params[t.target_param].clamp(v);
+                if (slot.params[t.target_param] - v).abs() > 1e-4 {
+                    slot.params[t.target_param] = v;
+                    changes.push((slot.slot_id, t.target_param, v));
+                }
+            }
+        }
+        for (slot, index, value) in changes {
+            self.send(Command::SetParam { slot, index, value });
+        }
+    }
+
     fn apply_file_status(&mut self, status: Vec<FileStatus>) {
         for (id, error, warning) in status {
             if let Some(s) = self.chain.iter_mut().find(|s| s.slot_id == id) {

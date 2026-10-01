@@ -62,6 +62,7 @@ export type Settings = {
   inputGainDb: number;
   outputGainDb: number;
   muted: boolean;
+  bpm: number;
 };
 
 export type EngineState = {
@@ -109,6 +110,7 @@ export type Action =
   | { type: 'setOutputGain'; db: number }
   | { type: 'setMute'; muted: boolean }
   | { type: 'setTuner'; enabled: boolean }
+  | { type: 'setBpm'; bpm: number }
   | { type: 'addEffect'; effectId: string; index?: number }
   | { type: 'removeEffect'; slotId: number }
   | { type: 'moveEffect'; slotId: number; to: number }

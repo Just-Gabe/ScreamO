@@ -205,6 +205,46 @@ pub struct EffectDescriptor {
     #[serde(skip)]
     pub create: fn(sample_rate: f32) -> Box<dyn Effect>,
     pub file: Option<FileSupport>,
+    /// Parâmetro que pode seguir o BPM global.
+    pub tempo: Option<TempoSync>,
+}
+
+/// Subdivisões de tempo do parâmetro "Sync" (em semínimas).
+pub const SYNC_OPTIONS: &[&str] = &["Off", "1/4", "1/8", "1/8 .", "1/8 T", "1/16"];
+const SYNC_BEATS: [f32; 6] = [0.0, 1.0, 0.5, 0.75, 1.0 / 3.0, 0.25];
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TempoTarget {
+    /// O alvo é um tempo em ms (delay).
+    TimeMs,
+    /// O alvo é uma frequência em Hz (tremolo, chorus).
+    RateHz,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TempoSync {
+    /// Índice do parâmetro Choice com `SYNC_OPTIONS`.
+    pub sync_param: usize,
+    /// Índice do parâmetro controlado (tempo ou rate).
+    pub target_param: usize,
+    pub target: TempoTarget,
+}
+
+impl TempoSync {
+    /// Valor do alvo para o BPM e a subdivisão escolhida (None = sync desligado).
+    pub fn value(&self, bpm: f32, sync_index: f32) -> Option<f32> {
+        let beats = *SYNC_BEATS.get(sync_index.round() as usize)?;
+        if beats == 0.0 {
+            return None;
+        }
+        let ms = 60_000.0 / bpm * beats;
+        Some(match self.target {
+            TempoTarget::TimeMs => ms,
+            TempoTarget::RateHz => 1000.0 / ms,
+        })
+    }
 }
 
 impl EffectDescriptor {
@@ -342,5 +382,20 @@ mod level_report {
             }
             println!("{:12} {:+6.1} dB  peak {:.2}", d.id, util::lin_to_db(rms(&out[n / 2..]) / rms(&input)), out.iter().fold(0f32, |a, x| a.max(x.abs())));
         }
+    }
+}
+
+#[cfg(test)]
+mod tempo_tests {
+    use super::*;
+
+    #[test]
+    fn subdivisions_match_musical_values() {
+        let delay = TempoSync { sync_param: 0, target_param: 0, target: TempoTarget::TimeMs };
+        assert_eq!(delay.value(120.0, 0.0), None); // Off
+        assert_eq!(delay.value(120.0, 1.0), Some(500.0)); // 1/4
+        assert_eq!(delay.value(120.0, 3.0), Some(375.0)); // 1/8 pontuada
+        let trem = TempoSync { sync_param: 0, target_param: 0, target: TempoTarget::RateHz };
+        assert_eq!(trem.value(120.0, 2.0), Some(4.0)); // 1/8 a 120 BPM = 4 Hz
     }
 }

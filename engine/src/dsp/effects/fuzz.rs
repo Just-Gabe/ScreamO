@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Dual::boxed(|| Fuzz::new(sr)),
     file: None,
+    tempo: None,
 };
 
 struct Fuzz {

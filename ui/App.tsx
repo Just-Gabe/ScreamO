@@ -7,6 +7,7 @@ import { EngineStats, LevelMeters } from './src/components/Meters';
 import { Pedal } from './src/components/Pedal';
 import { PresetSheet } from './src/components/PresetSheet';
 import { SettingsSheet } from './src/components/SettingsSheet';
+import { TempoControl } from './src/components/TempoControl';
 import { Tuner } from './src/components/Tuner';
 import { clearError, send, useConnection, useEngine, useEngineError } from './src/engine';
 import { colors, radius } from './src/theme';
@@ -79,6 +80,7 @@ export default function App() {
         </Pressable>
 
         <View style={{ flex: 1 }} />
+        <TempoControl bpm={settings.bpm} />
         <LevelMeters />
         <Knob
           label="Input"

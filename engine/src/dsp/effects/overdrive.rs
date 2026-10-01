@@ -16,6 +16,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Dual::boxed(|| Overdrive::new(sr)),
     file: None,
+    tempo: None,
 };
 
 struct Overdrive {

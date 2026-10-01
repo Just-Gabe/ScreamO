@@ -15,9 +15,11 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::log_knob("rate", "Rate", 0.5, 15.0, 5.0, "Hz"),
         ParamSpec::knob("depth", "Depth", 0.0, 100.0, 60.0, "%"),
         ParamSpec::choice("shape", "Shape", &["Sine", "Square"], 0),
+        ParamSpec::choice("sync", "Sync", SYNC_OPTIONS, 0),
     ],
     create: |sr| Dual::boxed(|| Tremolo::new(sr)),
     file: None,
+    tempo: Some(TempoSync { sync_param: 3, target_param: 0, target: TempoTarget::RateHz }),
 };
 
 struct Tremolo {

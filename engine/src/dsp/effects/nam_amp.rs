@@ -22,6 +22,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Box::new(NamAmp::new(sr, None)),
     file: Some(FileSupport { kind: FileKind::Nam, create: create_with_model, validate }),
+    tempo: None,
 };
 
 fn validate(data: &[u8]) -> Result<()> {

@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Dual::boxed(|| Compressor::new(sr)),
     file: None,
+    tempo: None,
 };
 
 struct Compressor {

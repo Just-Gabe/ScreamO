@@ -18,6 +18,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Box::new(Chorus::new(sr)),
     file: None,
+    tempo: None,
 };
 
 struct Chorus {

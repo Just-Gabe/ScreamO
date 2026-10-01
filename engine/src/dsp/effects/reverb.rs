@@ -18,6 +18,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
     ],
     create: |sr| Box::new(Reverb::new(sr)),
     file: None,
+    tempo: None,
 };
 
 const COMB_TUNING: [usize; 8] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];
