@@ -175,7 +175,8 @@ async fn main() -> anyhow::Result<()> {
                     let c = controller.clone();
                     let recovered = tokio::task::spawn_blocking(move || {
                         let mut c = c.lock();
-                        c.try_recover().then(|| c.state_json())
+                        let midi_changed = c.midi_rescan();
+                        (c.try_recover() || midi_changed).then(|| c.state_json())
                     })
                     .await
                     .ok()

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Knob } from './src/components/Knob';
 import { LibrarySheet } from './src/components/LibrarySheet';
+import { MidiSheet } from './src/components/MidiSheet';
 import { EngineStats, LevelMeters } from './src/components/Meters';
 import { Pedal } from './src/components/Pedal';
 import { PresetSheet } from './src/components/PresetSheet';
@@ -12,7 +13,7 @@ import { Tuner } from './src/components/Tuner';
 import { clearError, send, useConnection, useEngine, useEngineError } from './src/engine';
 import { colors, radius } from './src/theme';
 
-type Panel = 'none' | 'settings' | 'library' | 'presets' | 'tuner';
+type Panel = 'none' | 'settings' | 'library' | 'presets' | 'tuner' | 'midi';
 
 export default function App() {
   const state = useEngine();
@@ -104,6 +105,7 @@ export default function App() {
         />
         <TopButton label="Afinador" onPress={openTuner} />
         <TopButton label={muted ? 'Mudo' : 'Som on'} active={!muted} danger={muted} onPress={() => send({ type: 'setMute', muted: !muted })} />
+        <TopButton label={state.midi.devices.length ? `MIDI ●` : 'MIDI'} onPress={() => setPanel('midi')} />
         <TopButton label="Áudio" onPress={() => setPanel('settings')} />
       </View>
 
@@ -158,6 +160,7 @@ export default function App() {
       <SettingsSheet state={state} visible={panel === 'settings'} onClose={close} />
       <LibrarySheet effects={state.effects} visible={panel === 'library'} onClose={close} />
       <PresetSheet state={state} visible={panel === 'presets'} onClose={close} />
+      <MidiSheet state={state} visible={panel === 'midi'} onClose={close} />
       <Tuner visible={panel === 'tuner'} onClose={closeTuner} />
     </View>
   );

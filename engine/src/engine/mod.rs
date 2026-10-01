@@ -3,6 +3,7 @@
 //! para a thread de áudio.
 
 pub mod files;
+pub mod midi;
 pub mod presets;
 pub mod processor;
 pub mod tuner;
@@ -20,6 +21,7 @@ use crate::audio::resampler::AdaptiveResampler;
 use crate::audio::wasapi::{self, DeviceInfo, Flow, InputChannel, Session, SessionConfig};
 use crate::dsp::{self, util::db_to_lin};
 use files::FileLibrary;
+use midi::{Midi, MidiBinding, MidiEvent, MidiTarget};
 use presets::{Preset, PresetSlot, PresetStore};
 use processor::{Command, Garbage, Meters, Processor, ProcessorInit, Slot};
 use tuner::Tuner;
@@ -40,6 +42,9 @@ pub struct Settings {
     pub output_gain_db: f32,
     pub muted: bool,
     pub bpm: f32,
+    pub midi_bindings: Vec<MidiBinding>,
+    /// Program Change N carrega o preset N (fábrica primeiro, depois os seus).
+    pub midi_program_change: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +59,8 @@ impl Default for Settings {
             output_gain_db: -6.0,
             muted: false,
             bpm: 120.0,
+            midi_bindings: Vec::new(),
+            midi_program_change: true,
         }
     }
 }
@@ -112,6 +119,10 @@ pub enum Action {
     SetMute { muted: bool },
     SetTuner { enabled: bool },
     SetBpm { bpm: f32 },
+    /// Próximo CC recebido é ligado a `target` (None cancela).
+    MidiLearn { target: Option<MidiTarget> },
+    MidiUnbind { index: usize },
+    SetMidiProgramChange { enabled: bool },
     AddEffect { effect_id: String, index: Option<usize> },
     RemoveEffect { slot_id: u64 },
     MoveEffect { slot_id: u64, to: usize },
@@ -161,6 +172,10 @@ pub struct Controller {
     /// Mudo automático quando nenhuma entrada de guitarra foi escolhida nem
     /// detectada: evita microfonia do microfone padrão nos alto-falantes.
     safety_mute: bool,
+    midi: Midi,
+    midi_learn: Option<MidiTarget>,
+    /// Último estado (>= 64) de cada CC, para footswitch agir só ao pisar.
+    cc_high: [bool; 128],
 }
 
 impl Controller {
@@ -183,6 +198,9 @@ impl Controller {
             config_path,
             dirty: false,
             safety_mute: false,
+            midi: Midi::new(),
+            midi_learn: None,
+            cc_high: [false; 128],
         };
         let chain = persisted.chain.unwrap_or_else(presets::default_chain);
         c.chain = c.chain_from_preset(&chain);
@@ -380,6 +398,12 @@ impl Controller {
     /// do dispositivo. Retorna true se o estado mudou.
     pub fn tick(&mut self) -> bool {
         let mut changed = false;
+        for ev in self.midi.drain() {
+            changed |= match ev {
+                MidiEvent::ControlChange { cc, value } => self.apply_cc(cc, value),
+                MidiEvent::ProgramChange { program } => self.apply_program_change(program),
+            };
+        }
         if self.dirty {
             self.dirty = false;
             self.save_config();
@@ -393,6 +417,67 @@ impl Controller {
             }
         }
         changed
+    }
+
+    /// Procura dispositivos MIDI novos/desconectados. Retorna se mudou.
+    pub fn midi_rescan(&mut self) -> bool {
+        self.midi.rescan()
+    }
+
+    fn apply_cc(&mut self, cc: u8, value: u8) -> bool {
+        let cc_i = (cc & 0x7F) as usize;
+        if let Some(target) = self.midi_learn.take() {
+            self.settings.midi_bindings.retain(|b| b.cc != cc && b.target != target);
+            self.settings.midi_bindings.push(MidiBinding { cc, target });
+            self.cc_high[cc_i] = value >= 64;
+            self.dirty = true;
+            return true;
+        }
+        let rising = value >= 64 && !self.cc_high[cc_i];
+        self.cc_high[cc_i] = value >= 64;
+        let n = value as f32 / 127.0;
+        let mut actions = Vec::new();
+        for b in self.settings.midi_bindings.iter().filter(|b| b.cc == cc) {
+            match &b.target {
+                MidiTarget::Param { effect_id, param_id } => {
+                    let Some(slot) = self.chain.iter().find(|s| &s.effect_id == effect_id) else { continue };
+                    let Some(desc) = dsp::find(effect_id) else { continue };
+                    let Some(index) = desc.param_index(param_id) else { continue };
+                    let spec = &desc.params[index];
+                    let value = match spec.kind {
+                        dsp::ParamKind::Knob { log: true } if spec.min > 0.0 => spec.min * (spec.max / spec.min).powf(n),
+                        dsp::ParamKind::Knob { .. } | dsp::ParamKind::Choice { .. } => spec.min + (spec.max - spec.min) * n,
+                        dsp::ParamKind::Toggle => if value >= 64 { 1.0 } else { 0.0 },
+                        dsp::ParamKind::Actions { .. } => continue,
+                    };
+                    actions.push(Action::SetParam { slot_id: slot.slot_id, index, value });
+                }
+                // Footswitch: alterna a cada pisada (momentâneo ou latching).
+                MidiTarget::Bypass { effect_id } if rising => {
+                    if let Some(slot) = self.chain.iter().find(|s| &s.effect_id == effect_id) {
+                        actions.push(Action::SetBypass { slot_id: slot.slot_id, bypass: !slot.bypass });
+                    }
+                }
+                MidiTarget::Bypass { .. } => {}
+                MidiTarget::OutputVolume => actions.push(Action::SetOutputGain { db: -60.0 + 72.0 * n }),
+            }
+        }
+        let changed = !actions.is_empty();
+        for a in actions {
+            let _ = self.apply(a);
+        }
+        changed
+    }
+
+    fn apply_program_change(&mut self, program: u8) -> bool {
+        if !self.settings.midi_program_change {
+            return false;
+        }
+        let names: Vec<String> = presets::factory().into_iter().map(|p| p.name).chain(self.store.list_user()).collect();
+        match names.get(program as usize) {
+            Some(name) => self.apply(Action::LoadPreset { name: name.clone() }).is_ok(),
+            None => false,
+        }
     }
 
     /// Tenta religar se o áudio caiu (ex.: cabo reconectado).
@@ -468,6 +553,20 @@ impl Controller {
             Action::SetBpm { bpm } => {
                 self.settings.bpm = bpm.clamp(30.0, 300.0);
                 self.apply_tempo();
+                Outcome::State
+            }
+            Action::MidiLearn { target } => {
+                self.midi_learn = target;
+                Outcome::State
+            }
+            Action::MidiUnbind { index } => {
+                if index < self.settings.midi_bindings.len() {
+                    self.settings.midi_bindings.remove(index);
+                }
+                Outcome::State
+            }
+            Action::SetMidiProgramChange { enabled } => {
+                self.settings.midi_program_change = enabled;
                 Outcome::State
             }
             Action::SetTuner { enabled } => {
@@ -615,6 +714,7 @@ impl Controller {
             "chain": self.chain,
             "presets": { "factory": factory, "user": self.store.list_user(), "current": self.current_preset },
             "files": self.library.list(),
+            "midi": { "devices": self.midi.devices(), "learning": self.midi_learn },
             "tunerEnabled": self.meters.tuner_enabled.load(Ordering::Relaxed),
             "safetyMute": self.safety_mute,
         })
@@ -722,4 +822,45 @@ fn build_slots(library: &FileLibrary, chain: &[SlotState], sr: f32) -> (Vec<Slot
         status.push(st);
     }
     (slots, status)
+}
+
+#[cfg(test)]
+mod midi_tests {
+    use super::*;
+
+    fn controller() -> Controller {
+        let dir = std::env::temp_dir().join(format!("screamo-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        Controller::new(dir)
+    }
+
+    #[test]
+    fn learn_then_cc_moves_param_and_footswitch_toggles() {
+        let mut c = controller();
+        c.apply(Action::LoadPreset { name: "ScreamO Lead".into() }).unwrap();
+        // Pedal de expressão (CC 11) no Time do delay (knob log 20..2000 ms).
+        c.apply(Action::MidiLearn { target: Some(MidiTarget::Param { effect_id: "delay".into(), param_id: "time".into() }) }).unwrap();
+        assert!(c.apply_cc(11, 0));
+        assert_eq!(c.settings.midi_bindings.len(), 1);
+        c.apply_cc(11, 127);
+        let delay = c.chain.iter().find(|s| s.effect_id == "delay").unwrap();
+        assert!((delay.params[0] - 2000.0).abs() < 0.5, "{}", delay.params[0]);
+
+        // Footswitch (CC 80) no bypass do overdrive: alterna só ao pisar.
+        c.apply(Action::MidiLearn { target: Some(MidiTarget::Bypass { effect_id: "overdrive".into() }) }).unwrap();
+        c.apply_cc(80, 0);
+        let bypass = |c: &Controller| c.chain.iter().find(|s| s.effect_id == "overdrive").unwrap().bypass;
+        let before = bypass(&c);
+        c.apply_cc(80, 127);
+        assert_ne!(bypass(&c), before);
+        c.apply_cc(80, 127); // segurando: não alterna de novo
+        assert_ne!(bypass(&c), before);
+        c.apply_cc(80, 0);
+        c.apply_cc(80, 127);
+        assert_eq!(bypass(&c), before);
+
+        // Program Change 0 = primeiro preset de fábrica.
+        assert!(c.apply_program_change(0));
+        assert_eq!(c.current_preset.as_deref(), Some(presets::factory()[0].name.as_str()));
+    }
 }

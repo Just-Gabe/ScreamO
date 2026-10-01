@@ -52,6 +52,13 @@ export type StreamInfo = {
   mode: string;
 };
 
+export type MidiTarget =
+  | { kind: 'param'; effectId: string; paramId: string }
+  | { kind: 'bypass'; effectId: string }
+  | { kind: 'outputVolume' };
+
+export type MidiBinding = { cc: number; target: MidiTarget };
+
 export type InputChannel = 'auto' | 'left' | 'right' | 'mix';
 
 export type Settings = {
@@ -64,6 +71,8 @@ export type Settings = {
   outputGainDb: number;
   muted: boolean;
   bpm: number;
+  midiBindings: MidiBinding[];
+  midiProgramChange: boolean;
 };
 
 export type EngineState = {
@@ -80,6 +89,7 @@ export type EngineState = {
   chain: SlotState[];
   presets: { factory: string[]; user: string[]; current: string | null };
   files: Record<FileKind, string[]>;
+  midi: { devices: string[]; learning: MidiTarget | null };
   tunerEnabled: boolean;
   safetyMute: boolean;
 };
@@ -118,6 +128,9 @@ export type Action =
   | { type: 'setMute'; muted: boolean }
   | { type: 'setTuner'; enabled: boolean }
   | { type: 'setBpm'; bpm: number }
+  | { type: 'midiLearn'; target: MidiTarget | null }
+  | { type: 'midiUnbind'; index: number }
+  | { type: 'setMidiProgramChange'; enabled: boolean }
   | { type: 'addEffect'; effectId: string; index?: number }
   | { type: 'removeEffect'; slotId: number }
   | { type: 'moveEffect'; slotId: number; to: number }
