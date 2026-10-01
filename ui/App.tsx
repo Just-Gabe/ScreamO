@@ -6,6 +6,7 @@ import { LibrarySheet } from './src/components/LibrarySheet';
 import { MidiSheet } from './src/components/MidiSheet';
 import { EngineStats, LevelMeters } from './src/components/Meters';
 import { Pedal } from './src/components/Pedal';
+import { useReorder } from './src/components/useReorder';
 import { PresetSheet } from './src/components/PresetSheet';
 import { SettingsSheet } from './src/components/SettingsSheet';
 import { TempoControl } from './src/components/TempoControl';
@@ -20,6 +21,9 @@ export default function App() {
   const conn = useConnection();
   const [panel, setPanel] = useState<Panel>('none');
   const tunerPrevMute = useRef(false);
+  const reorder = useReorder(state?.chain.map((s) => s.slotId) ?? [], (slotId, to) =>
+    send({ type: 'moveEffect', slotId, to }),
+  );
 
   if (!state) {
     return (
@@ -51,6 +55,12 @@ export default function App() {
   };
 
   const muted = settings.muted || state.safetyMute;
+
+  // Arrastar e soltar: posição de destino entre os demais pedais.
+  const { drag } = reorder;
+  const from = drag ? state.chain.findIndex((s) => s.slotId === drag.id) : -1;
+  const others = drag ? state.chain.filter((s) => s.slotId !== drag.id) : state.chain;
+  const moving = !!drag && drag.target !== from;
 
   return (
     <View style={styles.root}>
@@ -130,20 +140,28 @@ export default function App() {
         {state.chain.map((slot, i) => {
           const desc = descById.get(slot.effectId);
           if (!desc) return null;
+          const dragging = drag?.id === slot.slotId;
+          // O marcador fica antes do pedal que ficará logo depois do arrastado.
+          const markHere = moving && others[drag!.target]?.slotId === slot.slotId;
           return (
-            <View key={slot.slotId} style={styles.flow}>
-              <Cable />
+            <View
+              key={slot.slotId}
+              onLayout={reorder.onLayout(slot.slotId)}
+              style={[styles.flow, dragging && { transform: [{ translateX: drag!.dx }], zIndex: 10, opacity: 0.85 }]}
+            >
+              {markHere ? <DropMarker /> : <Cable />}
               <Pedal
                 slot={slot}
                 desc={desc}
                 index={i}
                 count={state.chain.length}
                 files={desc.file ? state.files[desc.file.kind] : undefined}
+                dragHandlers={reorder.handlersFor(slot.slotId)}
               />
             </View>
           );
         })}
-        <Cable />
+        {moving && drag!.target >= others.length ? <DropMarker /> : <Cable />}
         <Pressable onPress={() => setPanel('library')} style={({ hovered }: any) => [styles.add, hovered && styles.addHover]}>
           <Text style={styles.addPlus}>+</Text>
           <Text style={styles.addText}>Adicionar efeito</Text>
@@ -153,7 +171,7 @@ export default function App() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Text style={styles.hint}>Arraste os knobs para cima/baixo · duplo clique volta ao padrão · ◀ ▶ reordena</Text>
+        <Text style={styles.hint}>Arraste os knobs para cima/baixo · duplo clique volta ao padrão · arraste o pedal pelo título para reordenar</Text>
         <EngineStats />
       </View>
 
@@ -232,6 +250,14 @@ function Cable() {
   return <View style={styles.cable} />;
 }
 
+function DropMarker() {
+  return (
+    <View style={styles.dropWrap}>
+      <View style={styles.drop} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   center: { alignItems: 'center', justifyContent: 'center' },
@@ -289,6 +315,8 @@ const styles = StyleSheet.create({
   boardContent: { alignItems: 'center', paddingHorizontal: 24, paddingVertical: 24 },
   flow: { flexDirection: 'row', alignItems: 'center' },
   cable: { width: 26, height: 3, backgroundColor: colors.border, borderRadius: 2 },
+  dropWrap: { width: 26, alignItems: 'center', alignSelf: 'stretch', justifyContent: 'center' },
+  drop: { width: 4, height: '80%', minHeight: 160, backgroundColor: colors.accent, borderRadius: 2 },
   endpoint: {
     width: 110,
     paddingVertical: 18,

@@ -6,12 +6,14 @@ import { Platform } from 'react-native';
 import type { Action, EngineState, Meters } from './types';
 
 const ENGINE_PORT = 7777;
+const EXPO_DEV_PORT = '8081';
 
 function engineUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    const { hostname, port } = window.location;
-    // Servida pelo próprio motor: mesmo host. No dev server do Expo: porta do motor.
-    const target = port === String(ENGINE_PORT) ? window.location.host : `${hostname}:${ENGINE_PORT}`;
+    const { hostname, port, host } = window.location;
+    // No dev server do Expo a UI fala com o motor na porta padrão; servida
+    // pelo próprio motor (qualquer --port), usa o mesmo host.
+    const target = port === EXPO_DEV_PORT ? `${hostname}:${ENGINE_PORT}` : host;
     return `ws://${target}/ws`;
   }
   return `ws://127.0.0.1:${ENGINE_PORT}/ws`;

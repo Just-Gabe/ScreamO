@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { type GestureResponderHandlers, Pressable, StyleSheet, Text, View } from 'react-native';
 import { send, setParam, useMeters } from '../engine';
 import { colors, radius } from '../theme';
 import type { EffectDescriptor, SlotState } from '../types';
@@ -13,9 +13,11 @@ type Props = {
   count: number;
   /** Arquivos da biblioteca do tipo que este efeito usa (IR, NAM). */
   files?: string[];
+  /** Arrastar pelo título reordena a cadeia. */
+  dragHandlers?: GestureResponderHandlers;
 };
 
-function PedalImpl({ slot, desc, index, count, files }: Props) {
+function PedalImpl({ slot, desc, index, count, files, dragHandlers }: Props) {
   const on = !slot.bypass;
   const [picking, setPicking] = useState(false);
   const knobs = desc.params.map((p, i) => ({ p, i })).filter(({ p }) => p.kind === 'knob');
@@ -25,9 +27,12 @@ function PedalImpl({ slot, desc, index, count, files }: Props) {
     <View style={[styles.pedal, { borderColor: on ? desc.color : colors.border }, !on && styles.off]}>
       <View style={[styles.stripe, { backgroundColor: desc.color }]} />
       <View style={styles.header}>
-        <Text style={styles.name} numberOfLines={1}>
-          {desc.name}
-        </Text>
+        <View {...dragHandlers} style={styles.handle}>
+          <Text style={styles.grip}>⠿</Text>
+          <Text style={styles.name} numberOfLines={1}>
+            {desc.name}
+          </Text>
+        </View>
         <View style={styles.tools}>
           <Tool label="◀" disabled={index === 0} onPress={() => send({ type: 'moveEffect', slotId: slot.slotId, to: index - 1 })} />
           <Tool label="▶" disabled={index === count - 1} onPress={() => send({ type: 'moveEffect', slotId: slot.slotId, to: index + 1 })} />
@@ -174,6 +179,8 @@ const styles = StyleSheet.create({
   off: { opacity: 0.55 },
   stripe: { position: 'absolute', top: 0, left: 0, right: 0, height: 5 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
+  handle: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, cursor: 'grab' } as object,
+  grip: { color: colors.textFaint, fontSize: 14 },
   name: { color: colors.text, fontWeight: '800', fontSize: 16, flex: 1, letterSpacing: 0.3 },
   tools: { flexDirection: 'row', gap: 2 },
   tool: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 },
