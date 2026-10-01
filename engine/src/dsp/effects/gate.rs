@@ -13,6 +13,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::log_knob("release", "Release", 5.0, 800.0, 90.0, "ms"),
     ],
     create: |sr| Dual::boxed(|| Gate::new(sr)),
+    file: None,
 };
 
 struct Gate {

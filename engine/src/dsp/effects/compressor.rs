@@ -16,6 +16,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("blend", "Blend", 0.0, 100.0, 100.0, "%"),
     ],
     create: |sr| Dual::boxed(|| Compressor::new(sr)),
+    file: None,
 };
 
 struct Compressor {

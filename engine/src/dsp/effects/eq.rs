@@ -21,6 +21,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("level", "Level", -15.0, 15.0, 0.0, "dB"),
     ],
     create: |sr| Dual::boxed(|| Eq::new(sr)),
+    file: None,
 };
 
 struct Eq {

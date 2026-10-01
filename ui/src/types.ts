@@ -16,6 +16,8 @@ export type ParamSpec = {
 
 export type Category = 'dynamics' | 'drive' | 'amp' | 'cabinet' | 'eq' | 'modulation' | 'time';
 
+export type FileKind = 'ir' | 'nam';
+
 export type EffectDescriptor = {
   id: string;
   name: string;
@@ -23,6 +25,7 @@ export type EffectDescriptor = {
   description: string;
   color: string;
   params: ParamSpec[];
+  file: { kind: FileKind } | null;
 };
 
 export type SlotState = {
@@ -30,6 +33,9 @@ export type SlotState = {
   effectId: string;
   params: number[];
   bypass: boolean;
+  file: string | null;
+  fileError: string | null;
+  fileWarning: string | null;
 };
 
 export type DeviceInfo = { id: string; name: string; isDefault: boolean };
@@ -71,6 +77,7 @@ export type EngineState = {
   effects: EffectDescriptor[];
   chain: SlotState[];
   presets: { factory: string[]; user: string[]; current: string | null };
+  files: Record<FileKind, string[]>;
   tunerEnabled: boolean;
   safetyMute: boolean;
 };
@@ -109,4 +116,7 @@ export type Action =
   | { type: 'setBypass'; slotId: number; bypass: boolean }
   | { type: 'loadPreset'; name: string }
   | { type: 'savePreset'; name: string }
-  | { type: 'deletePreset'; name: string };
+  | { type: 'deletePreset'; name: string }
+  | { type: 'uploadFile'; name: string; data: string; slotId?: number }
+  | { type: 'deleteFile'; name: string }
+  | { type: 'setFile'; slotId: number; file: string | null };

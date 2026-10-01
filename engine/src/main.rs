@@ -47,7 +47,11 @@ fn parse_args() -> Args {
     args
 }
 
+/// `SCREAMO_DATA_DIR` permite uma pasta isolada (testes, perfis).
 fn data_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("SCREAMO_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
     std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(".")).join("ScreamO")
 }
 

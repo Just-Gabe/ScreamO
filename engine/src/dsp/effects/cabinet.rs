@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("mic", "Mic Pos", 0.0, 10.0, 5.0, ""),
     ],
     create: |sr| Dual::boxed(|| Cabinet::new(sr)),
+    file: None,
 };
 
 #[derive(Clone, Copy)]

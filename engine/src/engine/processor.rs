@@ -38,6 +38,8 @@ pub enum Command {
     Remove { slot: u64 },
     Move { slot: u64, to: usize },
     ReplaceChain(Vec<Slot>),
+    /// Troca a instância de um efeito (ex.: arquivo novo) mantendo a posição.
+    ReplaceSlot(Slot),
     SetInputGain(f32),
     SetOutputGain(f32),
     SetMute(bool),
@@ -176,6 +178,14 @@ impl Processor {
                     if let Some(i) = self.slots.iter().position(|s| s.id == slot) {
                         let s = self.slots.remove(i);
                         self.slots.insert(to.min(self.slots.len()), s);
+                    }
+                }
+                Command::ReplaceSlot(new) => {
+                    if let Some(s) = self.slots.iter_mut().find(|s| s.id == new.id) {
+                        let old = std::mem::replace(s, new);
+                        self.dispose(Garbage::Slot(old));
+                    } else {
+                        self.dispose(Garbage::Slot(new));
                     }
                 }
                 Command::ReplaceChain(mut new) => {

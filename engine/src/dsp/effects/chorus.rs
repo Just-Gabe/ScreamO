@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("width", "Width", 0.0, 100.0, 100.0, "%"),
     ],
     create: |sr| Box::new(Chorus::new(sr)),
+    file: None,
 };
 
 struct Chorus {

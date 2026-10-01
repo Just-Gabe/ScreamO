@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::choice("shape", "Shape", &["Sine", "Square"], 0),
     ],
     create: |sr| Dual::boxed(|| Tremolo::new(sr)),
+    file: None,
 };
 
 struct Tremolo {

@@ -83,7 +83,9 @@ async fn ws_handler(ws: WebSocketUpgrade, headers: HeaderMap, State(state): Stat
     if !origin_allowed(&headers, state.port) {
         return (StatusCode::FORBIDDEN, "origem não permitida").into_response();
     }
-    ws.on_upgrade(move |socket| client(socket, state))
+    // Uploads de IR/NAM chegam em base64 numa única mensagem.
+    let limit = crate::engine::files::MAX_FILE_BYTES * 2;
+    ws.max_message_size(limit).max_frame_size(limit).on_upgrade(move |socket| client(socket, state))
 }
 
 async fn client(socket: WebSocket, state: AppState) {

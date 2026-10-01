@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("level", "Level", 0.0, 10.0, 5.0, ""),
     ],
     create: |sr| Dual::boxed(|| Distortion::new(sr)),
+    file: None,
 };
 
 struct Distortion {

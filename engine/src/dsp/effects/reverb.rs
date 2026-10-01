@@ -17,6 +17,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("width", "Width", 0.0, 100.0, 100.0, "%"),
     ],
     create: |sr| Box::new(Reverb::new(sr)),
+    file: None,
 };
 
 const COMB_TUNING: [usize; 8] = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617];

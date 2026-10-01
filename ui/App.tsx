@@ -129,7 +129,13 @@ export default function App() {
           return (
             <View key={slot.slotId} style={styles.flow}>
               <Cable />
-              <Pedal slot={slot} desc={desc} index={i} count={state.chain.length} />
+              <Pedal
+                slot={slot}
+                desc={desc}
+                index={i}
+                count={state.chain.length}
+                files={desc.file ? state.files[desc.file.kind] : undefined}
+              />
             </View>
           );
         })}

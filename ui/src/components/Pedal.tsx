@@ -1,8 +1,9 @@
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { send, setParam } from '../engine';
 import { colors, radius } from '../theme';
 import type { EffectDescriptor, SlotState } from '../types';
+import { FileSheet } from './FileSheet';
 import { Knob } from './Knob';
 
 type Props = {
@@ -10,10 +11,13 @@ type Props = {
   desc: EffectDescriptor;
   index: number;
   count: number;
+  /** Arquivos da biblioteca do tipo que este efeito usa (IR, NAM). */
+  files?: string[];
 };
 
-function PedalImpl({ slot, desc, index, count }: Props) {
+function PedalImpl({ slot, desc, index, count, files }: Props) {
   const on = !slot.bypass;
+  const [picking, setPicking] = useState(false);
   const knobs = desc.params.map((p, i) => ({ p, i })).filter(({ p }) => p.kind === 'knob');
   const choices = desc.params.map((p, i) => ({ p, i })).filter(({ p }) => p.kind !== 'knob');
 
@@ -30,6 +34,27 @@ function PedalImpl({ slot, desc, index, count }: Props) {
           <Tool label="✕" onPress={() => send({ type: 'removeEffect', slotId: slot.slotId })} />
         </View>
       </View>
+
+      {desc.file && (
+        <>
+          <Pressable onPress={() => setPicking(true)} style={[styles.fileBtn, { borderColor: desc.color }]}>
+            <Text style={styles.fileLabel}>{desc.file.kind === 'ir' ? 'IR' : 'CAPTURA'}</Text>
+            <Text style={[styles.fileName, !slot.file && { color: colors.textDim }]} numberOfLines={1}>
+              {slot.file ? slot.file.replace(/\.(wav|nam)$/i, '') : 'Escolher arquivo...'}
+            </Text>
+          </Pressable>
+          {slot.fileError && <Text style={styles.fileError}>{slot.fileError}</Text>}
+          {slot.fileWarning && <Text style={styles.fileWarning}>{slot.fileWarning}</Text>}
+          <FileSheet
+            kind={desc.file.kind}
+            slotId={slot.slotId}
+            current={slot.file}
+            files={files ?? []}
+            visible={picking}
+            onClose={() => setPicking(false)}
+          />
+        </>
+      )}
 
       {choices.map(({ p, i }) => (
         <View key={p.id} style={styles.choiceRow}>
@@ -124,6 +149,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgRaised,
   },
   choiceText: { color: colors.text, fontSize: 11, fontWeight: '700' },
+  fileBtn: {
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginBottom: 10,
+    backgroundColor: colors.bgRaised,
+  },
+  fileLabel: { color: colors.textFaint, fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  fileName: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  fileError: { color: colors.danger, fontSize: 11, marginBottom: 8 },
+  fileWarning: { color: colors.warn, fontSize: 11, marginBottom: 8 },
   knobs: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', rowGap: 10, marginBottom: 12 },
   footswitch: {
     flexDirection: 'row',

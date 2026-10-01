@@ -14,6 +14,8 @@ pub mod distortion;
 pub mod eq;
 pub mod fuzz;
 pub mod gate;
+pub mod ir_cab;
+pub mod nam_amp;
 pub mod overdrive;
 pub mod reverb;
 pub mod tremolo;
@@ -26,7 +28,9 @@ pub static REGISTRY: &[&EffectDescriptor] = &[
     &distortion::DESCRIPTOR,
     &fuzz::DESCRIPTOR,
     &amp::DESCRIPTOR,
+    &nam_amp::DESCRIPTOR,
     &cabinet::DESCRIPTOR,
+    &ir_cab::DESCRIPTOR,
     &eq::DESCRIPTOR,
     &chorus::DESCRIPTOR,
     &tremolo::DESCRIPTOR,

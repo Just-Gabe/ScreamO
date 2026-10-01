@@ -2,6 +2,7 @@
 //! gerencia a sessão de áudio e traduz ações da UI em comandos lock-free
 //! para a thread de áudio.
 
+pub mod files;
 pub mod presets;
 pub mod processor;
 pub mod tuner;
@@ -18,6 +19,7 @@ use serde_json::{Value, json};
 use crate::audio::resampler::AdaptiveResampler;
 use crate::audio::wasapi::{self, DeviceInfo, Flow, InputChannel, Session, SessionConfig};
 use crate::dsp::{self, util::db_to_lin};
+use files::FileLibrary;
 use presets::{Preset, PresetSlot, PresetStore};
 use processor::{Command, Garbage, Meters, Processor, ProcessorInit, Slot};
 use tuner::Tuner;
@@ -61,6 +63,19 @@ pub struct SlotState {
     pub effect_id: String,
     pub params: Vec<f32>,
     pub bypass: bool,
+    /// Arquivo da biblioteca usado pelo efeito (IR, captura NAM).
+    #[serde(default)]
+    pub file: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub file_error: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub file_warning: Option<String>,
+}
+
+impl SlotState {
+    fn new(slot_id: u64, effect_id: &str, params: Vec<f32>, bypass: bool, file: Option<String>) -> Self {
+        Self { slot_id, effect_id: effect_id.into(), params, bypass, file, file_error: None, file_warning: None }
+    }
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -100,6 +115,11 @@ pub enum Action {
     SetParam { slot_id: u64, index: usize, value: f32 },
     SetBypass { slot_id: u64, bypass: bool },
     LoadPreset { name: String },
+    /// `data` em base64 (o arquivo vem do navegador pelo WebSocket).
+    /// Com `slot_id`, já aplica o arquivo naquele pedal.
+    UploadFile { name: String, data: String, slot_id: Option<u64> },
+    DeleteFile { name: String },
+    SetFile { slot_id: u64, file: Option<String> },
     SavePreset { name: String },
     DeletePreset { name: String },
 }
@@ -130,6 +150,7 @@ pub struct Controller {
     inputs: Vec<DeviceInfo>,
     outputs: Vec<DeviceInfo>,
     store: PresetStore,
+    library: FileLibrary,
     config_path: PathBuf,
     dirty: bool,
     /// Mudo automático quando nenhuma entrada de guitarra foi escolhida nem
@@ -153,6 +174,7 @@ impl Controller {
             inputs: Vec::new(),
             outputs: Vec::new(),
             store: PresetStore::new(data_dir.join("presets")),
+            library: FileLibrary::new(data_dir.join("files")),
             config_path,
             dirty: false,
             safety_mute: false,
@@ -194,7 +216,7 @@ impl Controller {
                         params[i] = desc.params[i].clamp(*v);
                     }
                 }
-                Some(SlotState { slot_id: self.alloc_id(), effect_id: desc.id.into(), params, bypass: s.bypass })
+                Some(SlotState::new(self.alloc_id(), desc.id, params, s.bypass, s.file.clone()))
             })
             .collect()
     }
@@ -208,6 +230,7 @@ impl Controller {
                     effect: s.effect_id.clone(),
                     bypass: s.bypass,
                     params: desc.params.iter().zip(&s.params).map(|(p, v)| (p.id.to_string(), *v)).collect(),
+                    file: s.file.clone(),
                 })
             })
             .collect()
@@ -260,6 +283,8 @@ impl Controller {
 
         let meters = self.meters.clone();
         let chain = self.chain.clone();
+        let library = self.library.clone();
+        let mut file_status = Vec::new();
         let settings = self.settings.clone();
         let safety_mute = self.safety_mute;
         let mut control_side = None;
@@ -272,7 +297,8 @@ impl Controller {
             let (audio_tx, mut audio_rx) = RingBuffer::<f32>::new(inp.sample_rate as usize * 2);
             let (tuner_tx, tuner_rx) = RingBuffer::<f32>::new(16384);
 
-            let slots = build_slots(&chain, sr);
+            let (slots, status) = build_slots(&library, &chain, sr);
+            file_status = status;
             let mut processor = Processor::new(ProcessorInit {
                 sample_rate: sr,
                 slots,
@@ -328,6 +354,7 @@ impl Controller {
                     output: Some(o.clone()),
                     latency_ms: latency,
                 };
+                self.apply_file_status(file_status);
                 let tuner_reading = tuner.reading.clone();
                 self.running = Some(Running { session, commands, garbage, _tuner: tuner, tuner_reading, sample_rate });
             }
@@ -442,7 +469,7 @@ impl Controller {
                 if self.chain.len() >= processor::MAX_SLOTS {
                     bail!("limite de {} efeitos na cadeia", processor::MAX_SLOTS);
                 }
-                let state = SlotState { slot_id: self.alloc_id(), effect_id: desc.id.into(), params: desc.defaults(), bypass: false };
+                let state = SlotState::new(self.alloc_id(), desc.id, desc.defaults(), false, None);
                 let index = index.unwrap_or(self.chain.len()).min(self.chain.len());
                 if let Some(sr) = self.running.as_ref().map(|r| r.sample_rate) {
                     let slot = Slot::new(state.slot_id, desc.instantiate(sr, &state.params), false, sr);
@@ -486,7 +513,8 @@ impl Controller {
                 let preset = self.store.load(&name)?;
                 self.chain = self.chain_from_preset(&preset.chain);
                 if let Some(sr) = self.running.as_ref().map(|r| r.sample_rate) {
-                    let slots = build_slots(&self.chain, sr);
+                    let (slots, status) = build_slots(&self.library, &self.chain, sr);
+                    self.apply_file_status(status);
                     self.send(Command::ReplaceChain(slots));
                 }
                 self.current_preset = Some(preset.name);
@@ -496,6 +524,37 @@ impl Controller {
                 let name = presets::sanitize_name(&name)?;
                 self.store.save(&Preset { name: name.clone(), chain: self.chain_to_preset() })?;
                 self.current_preset = Some(name);
+                Outcome::State
+            }
+            Action::UploadFile { name, data, slot_id } => {
+                use base64::Engine as _;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(data.as_bytes())
+                    .map_err(|_| anyhow!("upload corrompido"))?;
+                let saved = self.library.save(&name, &bytes)?;
+                match slot_id {
+                    Some(slot_id) => return self.apply(Action::SetFile { slot_id, file: Some(saved) }),
+                    None => Outcome::State,
+                }
+            }
+            Action::DeleteFile { name } => {
+                self.library.delete(&name)?;
+                Outcome::State
+            }
+            Action::SetFile { slot_id, file } => {
+                let idx = self.chain.iter().position(|s| s.slot_id == slot_id).ok_or_else(|| anyhow!("slot inexistente"))?;
+                if let Some(f) = &file {
+                    files::sanitize(f)?;
+                }
+                self.chain[idx].file = file;
+                self.chain[idx].file_error = None;
+                self.chain[idx].file_warning = None;
+                if let Some(sr) = self.running.as_ref().map(|r| r.sample_rate) {
+                    let (slot, status) = instantiate_slot(&self.library, &self.chain[idx], sr);
+                    self.apply_file_status(vec![status]);
+                    self.send(Command::ReplaceSlot(slot));
+                }
+                self.current_preset = None;
                 Outcome::State
             }
             Action::DeletePreset { name } => {
@@ -523,6 +582,7 @@ impl Controller {
             "effects": dsp::effects::REGISTRY,
             "chain": self.chain,
             "presets": { "factory": factory, "user": self.store.list_user(), "current": self.current_preset },
+            "files": self.library.list(),
             "tunerEnabled": self.meters.tuner_enabled.load(Ordering::Relaxed),
             "safetyMute": self.safety_mute,
         })
@@ -552,12 +612,56 @@ impl Drop for Controller {
     }
 }
 
-fn build_slots(chain: &[SlotState], sr: f32) -> Vec<Slot> {
-    let mut slots = Vec::with_capacity(processor::MAX_SLOTS);
-    for s in chain {
-        if let Some(desc) = dsp::find(&s.effect_id) {
-            slots.push(Slot::new(s.slot_id, desc.instantiate(sr, &s.params), s.bypass, sr));
+/// Resultado do carregamento de arquivo de um slot: (id, erro, aviso).
+type FileStatus = (u64, Option<String>, Option<String>);
+
+impl Controller {
+    fn apply_file_status(&mut self, status: Vec<FileStatus>) {
+        for (id, error, warning) in status {
+            if let Some(s) = self.chain.iter_mut().find(|s| s.slot_id == id) {
+                s.file_error = error;
+                s.file_warning = warning;
+            }
         }
     }
-    slots
+}
+
+/// Aviso quando a captura NAM foi treinada em outra taxa de amostragem.
+fn nam_rate_warning(data: &[u8], sr: f32) -> Option<String> {
+    let json: Value = serde_json::from_slice(data).ok()?;
+    let rate = dsp::nam::parse_info(&json).sample_rate?;
+    ((rate - sr as f64).abs() > 1.0)
+        .then(|| format!("Captura feita em {rate} Hz, mas o áudio está em {sr} Hz: o timbre pode mudar um pouco."))
+}
+
+/// Cria a instância de um slot, carregando o arquivo se houver.
+fn instantiate_slot(library: &FileLibrary, s: &SlotState, sr: f32) -> (Slot, FileStatus) {
+    let desc = dsp::find(&s.effect_id).expect("efeito validado ao entrar na cadeia");
+    let data = match &s.file {
+        Some(name) => match library.read(name) {
+            Ok(d) => Some(d),
+            Err(e) => {
+                let slot = Slot::new(s.slot_id, desc.instantiate(sr, &s.params), s.bypass, sr);
+                return (slot, (s.slot_id, Some(format!("{e:#}")), None));
+            }
+        },
+        None => None,
+    };
+    let warning = match (&data, &desc.file) {
+        (Some(d), Some(fs)) if fs.kind == dsp::FileKind::Nam => nam_rate_warning(d, sr),
+        _ => None,
+    };
+    let (fx, error) = desc.instantiate_with(sr, &s.params, data.as_deref());
+    (Slot::new(s.slot_id, fx, s.bypass, sr), (s.slot_id, error, warning))
+}
+
+fn build_slots(library: &FileLibrary, chain: &[SlotState], sr: f32) -> (Vec<Slot>, Vec<FileStatus>) {
+    let mut slots = Vec::with_capacity(processor::MAX_SLOTS);
+    let mut status = Vec::new();
+    for s in chain.iter().filter(|s| dsp::find(&s.effect_id).is_some()) {
+        let (slot, st) = instantiate_slot(library, s, sr);
+        slots.push(slot);
+        status.push(st);
+    }
+    (slots, status)
 }

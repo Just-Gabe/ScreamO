@@ -14,6 +14,8 @@ pub struct PresetSlot {
     pub bypass: bool,
     #[serde(default)]
     pub params: BTreeMap<String, f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,7 @@ fn slot(effect: &str, bypass: bool, params: &[(&str, f32)]) -> PresetSlot {
         effect: effect.into(),
         bypass,
         params: params.iter().map(|(k, v)| (k.to_string(), *v)).collect(),
+        file: None,
     }
 }
 

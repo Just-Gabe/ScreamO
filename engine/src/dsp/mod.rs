@@ -5,8 +5,11 @@
 //! arquivo e registrar o descritor em [`effects::REGISTRY`]. Veja
 //! `docs/ADDING_EFFECTS.md`.
 
+pub mod convolver;
 pub mod effects;
+pub mod nam;
 pub mod util;
+pub mod wav;
 
 use serde::Serialize;
 
@@ -98,8 +101,7 @@ pub enum ParamKind {
     Knob { log: bool },
     /// Seletor discreto; o valor é o índice da opção.
     Choice { options: &'static [&'static str] },
-    /// Liga/desliga (0.0 / 1.0). A UI já sabe desenhar; disponível para novos efeitos.
-    #[allow(dead_code)]
+    /// Liga/desliga (0.0 / 1.0).
     Toggle,
 }
 
@@ -136,6 +138,10 @@ impl ParamSpec {
         }
     }
 
+    pub const fn toggle(id: &'static str, name: &'static str, default: bool) -> Self {
+        Self { id, name, min: 0.0, max: 1.0, default: if default { 1.0 } else { 0.0 }, unit: "", kind: ParamKind::Toggle }
+    }
+
     pub fn clamp(&self, v: f32) -> f32 {
         let v = if v.is_finite() { v } else { self.default };
         let v = v.clamp(self.min, self.max);
@@ -144,6 +150,42 @@ impl ParamSpec {
             ParamKind::Knob { .. } => v,
         }
     }
+}
+
+/// Tipo de arquivo que um efeito sabe carregar (IR de caixa, captura NAM...).
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FileKind {
+    Ir,
+    Nam,
+}
+
+impl FileKind {
+    pub const ALL: [FileKind; 2] = [FileKind::Ir, FileKind::Nam];
+
+    pub fn extension(self) -> &'static str {
+        match self {
+            FileKind::Ir => "wav",
+            FileKind::Nam => "nam",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        let ext = name.rsplit('.').next()?.to_ascii_lowercase();
+        Self::ALL.into_iter().find(|k| k.extension() == ext)
+    }
+}
+
+/// Efeitos que dependem de um arquivo do usuário.
+#[derive(Serialize)]
+pub struct FileSupport {
+    pub kind: FileKind,
+    /// Cria a instância a partir do conteúdo do arquivo. Fora da thread de áudio.
+    #[serde(skip)]
+    pub create: fn(sample_rate: f32, data: &[u8]) -> anyhow::Result<Box<dyn Effect>>,
+    /// Valida o arquivo antes de salvar na biblioteca.
+    #[serde(skip)]
+    pub validate: fn(data: &[u8]) -> anyhow::Result<()>,
 }
 
 #[derive(Serialize)]
@@ -159,8 +201,10 @@ pub struct EffectDescriptor {
     pub params: &'static [ParamSpec],
     /// Cria uma instância para a taxa de amostragem dada. Chamado fora da
     /// thread de áudio, então pode alocar à vontade.
+    /// Sem arquivo carregado o efeito deve funcionar como passagem direta.
     #[serde(skip)]
     pub create: fn(sample_rate: f32) -> Box<dyn Effect>,
+    pub file: Option<FileSupport>,
 }
 
 impl EffectDescriptor {
@@ -172,15 +216,30 @@ impl EffectDescriptor {
         self.params.iter().position(|p| p.id == id)
     }
 
-    /// Cria a instância já com os parâmetros aplicados.
-    pub fn instantiate(&self, sample_rate: f32, values: &[f32]) -> Box<dyn Effect> {
-        let mut fx = (self.create)(sample_rate);
+    /// Cria a instância já com os parâmetros aplicados. Se o arquivo não
+    /// puder ser carregado, devolve a versão sem arquivo e o erro.
+    pub fn instantiate_with(&self, sample_rate: f32, values: &[f32], file: Option<&[u8]>) -> (Box<dyn Effect>, Option<String>) {
+        let mut error = None;
+        let mut fx = match (&self.file, file) {
+            (Some(fs), Some(data)) => match (fs.create)(sample_rate, data) {
+                Ok(fx) => fx,
+                Err(e) => {
+                    error = Some(format!("{e:#}"));
+                    (self.create)(sample_rate)
+                }
+            },
+            _ => (self.create)(sample_rate),
+        };
         for (i, spec) in self.params.iter().enumerate() {
             let v = values.get(i).copied().unwrap_or(spec.default);
             fx.set_param(i, spec.clamp(v));
         }
         fx.reset();
-        fx
+        (fx, error)
+    }
+
+    pub fn instantiate(&self, sample_rate: f32, values: &[f32]) -> Box<dyn Effect> {
+        self.instantiate_with(sample_rate, values, None).0
     }
 }
 

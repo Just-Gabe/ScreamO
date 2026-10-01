@@ -19,6 +19,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::choice("mode", "Mode", &["Stereo", "Ping-Pong"], 0),
     ],
     create: |sr| Box::new(Delay::new(sr)),
+    file: None,
 };
 
 struct Delay {

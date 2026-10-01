@@ -20,6 +20,7 @@ pub static DESCRIPTOR: EffectDescriptor = EffectDescriptor {
         ParamSpec::knob("master", "Master", 0.0, 10.0, 5.0, ""),
     ],
     create: |sr| Dual::boxed(|| Amp::new(sr)),
+    file: None,
 };
 
 #[derive(Clone, Copy)]
